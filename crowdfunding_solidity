@@ -1,0 +1,158 @@
+pragma solidity 0.6.4;
+
+contract CrowdFunding {
+
+
+    address payable public owner; // Set the only in the form of address, payment is available to the owner
+     uint public campaignNumber; //the numbers of the Campaign
+
+    
+    // Defining the Campaign structure
+    struct Campaign {
+        address payable owner; // the owner of the campaign
+        string title; // the title of the campaign
+        string description; // the description of the campaign
+        uint target; //in terms of wei
+        uint amountFunded;//in terms of wei
+        uint deadline; // setting the deadline of the campaign
+        bool goalAchieved; // indicate if the goal is achieved of not
+        bool isCampaignAvailable; // indicate if the campaign is opened for investment or not
+        bool existence; //indicate the existence of the campaign, regardless of the availability
+
+        mapping(address => uint) contributions;//map the address of contributor to the contribution
+
+    }
+
+ 
+    // Map the donation of each contributor into the Campaign 
+    mapping(uint => Campaign) campaigns;
+    
+    modifier onlyCampaignOwner(uint _campaignID) { //a modifier that restricting only the owner can use that function
+        require(msg.sender == campaigns[_campaignID].owner,"Only owner is allowed to call this function.");
+        _;
+    }
+    
+    modifier onlyOwner { // a modifier that ensure the user of the fucnction is the owner
+        require(msg.sender == owner,"Only owner is allowed to call this function.");
+        _;
+    }
+
+    constructor() public  { // a constructor to set the owner to be the current user 
+        owner = msg.sender;
+    }
+    
+    
+    // Check the basic information of a campaign inclusing owner address, title, description, funding target and the funded amount
+    function checkCampaign_ownerAddress_title_description_fundingTarget_fundedAmount (uint _campaignID) public view returns(address,string memory,string memory) {
+        require(campaigns[_campaignID].existence,"Campaign ID does not exist"); // check the existance of campaign by campaignID 
+        return (campaigns[_campaignID].owner,campaigns[_campaignID].title, campaigns[_campaignID].description);
+    }
+    
+    function checkCampaign_fundingTarget_fundedAmount_deadline (uint _campaignID) public view returns(uint, uint, uint) {
+        require(campaigns[_campaignID].existence,"Campaign ID does not exist"); // check the existance of campaign by campaignID 
+        return (campaigns[_campaignID].target, campaigns[_campaignID].amountFunded, campaigns[_campaignID].deadline);
+    }
+    
+    // Check the deadline and the status of a campaign
+    function checkCampaign_goalAchieved_availability (uint _campaignID) public view returns(bool, bool) {
+        require(campaigns[_campaignID].existence,"Campaign ID does not exist"); // check the existance of campaign by campaignID 
+        return (campaigns[_campaignID].goalAchieved, campaigns[_campaignID].isCampaignAvailable);
+    }
+    
+    // Contributors can view their own contribution for a specific campaign
+    function checkContribution(uint _campaignID) public view returns(uint contribution){
+            require(campaigns[_campaignID].existence,"Campaign does not exist."); // check the existance of the campaign
+           return campaigns[_campaignID].contributions[msg.sender]; // it will show the contributor their contriution on that project
+
+    }
+    
+    //Creating a new campaign
+    function createCampaign(string memory _title, string memory _description, uint _target, uint _totalFundingDays ) public {
+        
+        // the fundrasing period should be between 1 - 365 days
+        require(_totalFundingDays >=1 && _totalFundingDays <=365, "Funding Period should be between 1 - 365 days");
+        require(bytes(_title).length !=0, "Please input a title for your campaign!"); // the input of the title shouldn't be empty
+        //the description of your campaign shouldn't be empty
+        require(bytes(_description).length != 0, "A comprehensive description is needed for describing your product!"); 
+        require(_target > 0, "Your target amount should not be zero."); // your fundraising target shouldn't be zero
+        
+        // Set the input of the creator as one of the entries
+        // the creator is the address of the user
+        // funded amount is 0 by default as there is no funding at the beginning
+        // the deadline is the day plus the desired funding period in days
+        // the goal is not achieved by default
+        // the Campaign is exist and available for investing
+        Campaign memory selectedCampaign = Campaign(msg.sender,_title,_description,_target,0,block.timestamp + (_totalFundingDays * 1 days),false,true,true);
+        campaigns[campaignNumber] = selectedCampaign; // the data is mapped to the corresponding index 
+        campaignNumber += 1;//increase the total numbers of campaign by 1.
+    }
+
+
+    //Backing a campaign by contribute to the porject funding
+    function backCampaign(uint _campaignID) public payable{
+        
+        require(msg.value>0, "You should at least contribute 1 wei"); // the funding should at least contribute 1 wei 
+        require(campaigns[_campaignID].existence,"Campaign ID does not exist"); // check the existance of campaign by campaignID 
+        require(campaigns[_campaignID].isCampaignAvailable, "The campaign is not available."); // check the availability of the campaign by campaignID
+
+        checkDeadline(_campaignID);  // check the deadline of the campaign by using the function
+
+        // the contribution of the contributor on the campaign will be refreshed upon new contribution
+        campaigns[_campaignID].contributions[msg.sender] = (campaigns[_campaignID].contributions[msg.sender]) + msg.value;
+        // the  total funding amount of the campaign will increase after the contribution
+        campaigns[_campaignID].amountFunded = campaigns[_campaignID].amountFunded + msg.value;
+
+          //check if funded amount  achieved the target
+          // if it is achieved, then indicated it to be achieved
+          if(campaigns[_campaignID].amountFunded >= campaigns[_campaignID].target){
+                    campaigns[_campaignID].goalAchieved = true; 
+
+          }
+    }
+    
+    //To check if the deadline of the campaign has passed or not inside the functions internally
+    function checkDeadline(uint _campaignID)  internal {
+        
+        require(campaigns[_campaignID].existence,"Campaign does not exist."); // check the existance of the campaign
+        
+        // if the time has passed the deadline, the campaign will be unavailable
+        if (block.timestamp > campaigns[_campaignID].deadline){
+            campaigns[_campaignID].isCampaignAvailable = false; 
+        }
+
+    }
+
+    //the contributor of a campaign can withdraw the fund if the campaign have passed the deadline without acieving the target
+    function contributionRefund(uint _campaignID) public {
+            require(campaigns[_campaignID].existence,"Campaign does not exist."); // check the existance of the campaign
+            require(campaigns[_campaignID].contributions[msg.sender] > 0, "You have not made any contribution."); // check if the user have contribution on the campaign or not
+
+
+            checkDeadline(_campaignID); // check the deadline of the campaign by using the function
+
+            // if the camoaign is available or the target is achieved, then the contributor cannot get the refund 
+            require(!(campaigns[_campaignID].isCampaignAvailable) && !(campaigns[_campaignID].goalAchieved),"The campaign is still available or the goal is achieved. You cannot claim the refund." );
+
+            msg.sender.transfer(campaigns[_campaignID].contributions[msg.sender]); // if the above constraints are fulfilled , the retund will be sent to the contributor
+            campaigns[_campaignID].contributions[msg.sender] = 0; // reset the contribution of the contributor to be zero
+
+    }
+    
+    // the campaign owner can withdraw the cash from the campaign if the goal is achieved
+    function fundWithdrawl(uint _campaignID) public onlyCampaignOwner(_campaignID){
+                require(campaigns[_campaignID].existence,"Campaign does not exist."); // check the existance of the target campaign
+                require(campaigns[_campaignID].goalAchieved, "Cant withdraw. Goal amount not reached"); // check if the funding amount achieve the target of not
+                // if the target is achieved, then the fund will be transferred to the campaign owner
+                msg.sender.transfer(campaigns[_campaignID].amountFunded); 
+                campaigns[_campaignID].isCampaignAvailable = false; //The campaign will be closed upon the withdrawl of funds
+    }
+    
+    //The campaign owner can close the campaign if they want
+    function closeCampaign(uint _campaignID) public onlyCampaignOwner(_campaignID){
+            campaigns[_campaignID].isCampaignAvailable = false; // turn the campaign into unavailable 
+
+    }
+
+
+
+}
